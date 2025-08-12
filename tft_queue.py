@@ -14,16 +14,11 @@ except Exception:
 # ---------- Helpers ----------
 
 def locate_center(image_path, confidence=0.8, region=None):
-    """Return center point if found, else None. Never raise on miss."""
+    """Return center point if found, else None."""
     try:
-        return pyautogui.locateCenterOnScreen(
-            image_path, confidence=confidence, region=region
-        )
+        return pyautogui.locateCenterOnScreen(image_path, confidence=confidence, region=region)
     except Exception:
-        # When OpenCV is installed, PyAutoGUI can raise ImageNotFoundException on misses.
         return None
-
-
 
 def find_and_click(image_path, confidence=0.8, timeout=12, move_first=True, region=None):
     start = time.time()
@@ -37,7 +32,6 @@ def find_and_click(image_path, confidence=0.8, timeout=12, move_first=True, regi
         time.sleep(0.3)
     return False
 
-
 def watch_and_click(image_path, confidence=0.8, poll=0.5, max_wait=30, region=None):
     start = time.time()
     while time.time() - start < max_wait:
@@ -47,7 +41,6 @@ def watch_and_click(image_path, confidence=0.8, poll=0.5, max_wait=30, region=No
             return True
         time.sleep(poll)
     return False
-
 
 def focus_league(window_hint="League of Legends"):
     if not gw:
@@ -68,14 +61,26 @@ def focus_league(window_hint="League of Legends"):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--minutes", type=float, required=True, help="Delay before starting the click sequence")
+    p.add_argument("--minutes", type=float, help="Delay in minutes")
+    p.add_argument("--seconds", type=float, help="Delay in seconds")
     p.add_argument("--img-dir", type=str, default="./imgs")
     p.add_argument("--confidence", type=float, default=0.8)
     p.add_argument("--window-hint", type=str, default="League of Legends")
     p.add_argument("--accept-timeout", type=int, default=7200, help="Max seconds to wait for Accept popup")
     args = p.parse_args()
 
-    # Expected images
+    # Determine wait time
+    if args.seconds is not None:
+        delay_seconds = int(args.seconds)
+    elif args.minutes is not None:
+        delay_seconds = int(args.minutes * 60)
+    else:
+        try:
+            delay_seconds = int(float(input("Enter wait time in seconds: ").strip()))
+        except Exception:
+            print("Invalid input. Using 0 seconds.")
+            delay_seconds = 0
+
     seq = [
         os.path.join(args.img_dir, "1_play.png"),
         os.path.join(args.img_dir, "2_tft.png"),
@@ -90,14 +95,13 @@ def main():
             sys.exit(f"Missing image: {pth}")
 
     # Countdown
-    seconds = int(args.minutes * 60)
-    print(f"Timer started for {args.minutes} minutes…")
-    for s in range(seconds, 0, -1):
+    print(f"Timer started for {delay_seconds} seconds…")
+    for s in range(delay_seconds, 0, -1):
         if s % 10 == 0 or s <= 5:
             print(f"{s}s remaining")
         time.sleep(1)
 
-    # Focus League
+    # Focus League client
     if not focus_league(args.window_hint):
         print("Warning: couldn't focus League automatically. Ensure the client is visible on the same monitor used for screenshots.")
 
@@ -108,11 +112,10 @@ def main():
             sys.exit(f"Couldn't find step {step} image: {img}")
         time.sleep(0.6)
 
-    # Wait a bit before trying to click Find Match (handles the greyed-out state)
+    # Wait before clicking Find Match
     print("Waiting 2.5 seconds for Find Match to enable…")
-    time.sleep(2.5)  # Increase if your client enables slowly
+    time.sleep(2.5)
 
-    # Click Find Match in lower-center region
     screen_w, screen_h = pyautogui.size()
     lower_region = (int(screen_w*0.2), int(screen_h*0.55), int(screen_w*0.6), int(screen_h*0.4))
     fm_ok = watch_and_click(
@@ -120,33 +123,30 @@ def main():
         confidence=max(0.7, args.confidence - 0.05),
         poll=0.4,
         max_wait=25,
-        region=lower_region,
+        region=lower_region
     )
     if not fm_ok:
-        sys.exit("Couldn't find the Find Match button after delay. Re-crop the image or lower --confidence.")
+        sys.exit("Couldn't find the Find Match button after delay. Try re-cropping the image or lowering --confidence.")
 
     # Watch for ACCEPT popup (center region)
     print("Queued. Watching for ACCEPT popup… (Ctrl+C to stop)")
-    screen_w, screen_h = pyautogui.size()
     center_region = (int(screen_w*0.25), int(screen_h*0.2), int(screen_w*0.5), int(screen_h*0.6))
 
-    start = time.time()
+    start_time = time.time()
     accepted = False
-    while time.time() - start < args.accept_timeout:
+    while time.time() - start_time < args.accept_timeout:
         loc = locate_center(accept_img, confidence=max(0.7, args.confidence - 0.05), region=center_region)
         if loc:
             pyautogui.click(loc)
             print("Accepted match!")
             accepted = True
             break
-        # Heartbeat so you can see it's waiting
-        if int(time.time() - start) % 5 == 0:
+        if int(time.time() - start_time) % 5 == 0:
             print("…still waiting for Accept")
         time.sleep(0.5)
 
     if not accepted:
         print("Gave up waiting for Accept.")
-
 
 if __name__ == "__main__":
     main()
